@@ -11,7 +11,7 @@ using UnityEditor.SceneManagement;
 
 namespace ICKX.Radome {
 
-    public class RecordableIdentityManager : SingletonBehaviour<RecordableIdentityManager> {
+    public class RecordableIdentityManager : ManagerBase<RecordableIdentityManager> {
 
         private List<RecordableIdentity> m_spawnedIdentityList = null;
 
@@ -185,20 +185,25 @@ namespace ICKX.Radome {
                 base.OnInspectorGUI ();
 
                 if (GUILayout.Button ("Assign netID all", EditorStyles.miniButton)) {
-                    int id = 0;
-                    foreach (var identity in Resources.FindObjectsOfTypeAll<RecordableIdentity>()) {
-                        //scenenに展開しているidentityのみ対応
-                        if (string.IsNullOrEmpty (identity.gameObject.scene.name)) continue;
-
-                        identity.SetNetId (id);
-                        id++;
-                    }
-
-                    EditorSceneManager.MarkAllScenesDirty ();
-                    Debug.Log ("Complete assign netID all.");
-                }
+					AssignNetIDAll ();
+				}
             }
-        }
+
+			[MenuItem("ICKX/Network/AssignNetIDAll")]
+			public static void AssignNetIDAll () {
+				int id = 0;
+				foreach (var identity in Resources.FindObjectsOfTypeAll<RecordableIdentity> ()) {
+					//scenenに展開しているidentityのみ対応
+					if (string.IsNullOrEmpty (identity.gameObject.scene.name)) continue;
+
+					identity.SetNetId (id);
+					id++;
+				}
+
+				EditorSceneManager.MarkAllScenesDirty ();
+				Debug.Log ("Complete assign netID all.");
+			}
+		}
 #endif
     }
 }
