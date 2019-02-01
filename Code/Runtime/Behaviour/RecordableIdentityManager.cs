@@ -17,9 +17,13 @@ namespace ICKX.Radome {
 
         private List<System.Action<int>> uncheckReserveNetIdCallbacks; 
 
-        private IReadOnlyList<RecordableIdentity> spawnedIdentityList {
+        public IReadOnlyList<RecordableIdentity> spawnedIdentityList {
             get { return m_spawnedIdentityList; }
         }
+
+		public int SpawnedIdentityCount {
+			get { return m_spawnedIdentityList == null ? 0 : m_spawnedIdentityList.Count; }
+		} 
 
         public static long currentUnixTime { get; private set; }
 
@@ -60,6 +64,7 @@ namespace ICKX.Radome {
         /// </summary>
         public static void ReserveNetId (System.Action<int> onReserveNetId) {
             if (Instance == null) return;
+			if (Instance.m_spawnedIdentityList == null) return;
 
             if (GamePacketManager.IsLeader) {
                 onReserveNetId (Instance.m_spawnedIdentityList.Count);
@@ -79,8 +84,9 @@ namespace ICKX.Radome {
         public static void RegisterIdentity (RecordableIdentity identity, int netId, ushort author) {
             if (Instance == null) return;
             if (identity == null) return;
+			if (Instance.m_spawnedIdentityList == null) return;
 
-            while (identity.netId >= Instance.m_spawnedIdentityList.Count) Instance.m_spawnedIdentityList.Add (null);
+			while (identity.netId >= Instance.m_spawnedIdentityList.Count) Instance.m_spawnedIdentityList.Add (null);
             Instance.m_spawnedIdentityList[identity.netId] = identity;
             identity.SetNetId (netId);
             identity.SetAuthor (author);
@@ -93,8 +99,9 @@ namespace ICKX.Radome {
         public static void RequestChangeAuthor (RecordableIdentity identity, ushort author) {
             if (Instance == null) return;
             if (identity == null) return;
+			if (Instance.m_spawnedIdentityList == null) return;
 
-            if (GamePacketManager.IsLeader) {
+			if (GamePacketManager.IsLeader) {
                 identity.SetAuthor (author);
             } else {
                 using (var packet = new DataStreamWriter (7, Allocator.Temp)) {
@@ -107,7 +114,9 @@ namespace ICKX.Radome {
         }
 
         private void OnRecievePacket (ushort senderPlayerId, byte type, DataStreamReader rpcPacket, DataStreamReader.Context ctx) {
-            switch ((BuiltInPacket.Type)type) {
+			if (m_spawnedIdentityList == null) return;
+
+			switch ((BuiltInPacket.Type)type) {
                 case BuiltInPacket.Type.ReserveNetId:
                     if (GamePacketManager.IsLeader) {
                         //HostではNetIDの整合性を確認
