@@ -554,6 +554,22 @@ namespace Unity.Networking.Transport
 		}
 
 		/// <summary>
+		/// Byte[]の生成があるのでGC注意
+		/// </summary>
+		/// <param name="value"></param>
+		public void Write (string value) {
+			Write ((ushort)value.Length);
+			var data = System.Text.Encoding.UTF8.GetBytes (value);
+			fixed (byte* dataPtr = data) {
+				WriteBytes(dataPtr, data.Length);
+			}
+		}
+
+		public static int GetByteSizeStr (string value) {
+			return System.Text.Encoding.UTF8.GetByteCount (value);
+		}
+
+		/// <summary>
 		/// Moves the write position to the start of the data buffer used.
 		/// </summary>
 		public void Clear()
@@ -828,6 +844,19 @@ namespace Unity.Networking.Transport
 
 		public UnityEngine.Quaternion ReadQuaternion (ref Context ctx) {
 			return new UnityEngine.Quaternion (ReadFloat (ref ctx), ReadFloat (ref ctx), ReadFloat (ref ctx), ReadFloat (ref ctx));
+		}
+
+		/// <summary>
+		/// Byte[]の生成があるのでGC注意
+		/// </summary>
+		/// <param name="value"></param>
+		public string ReadString (ref Context ctx) {
+			var byteLen = ReadUShort (ref ctx);
+
+			fixed (byte* data = new byte[byteLen]) {
+				ReadBytes (ref ctx, data, byteLen);
+				return System.Text.Encoding.UTF8.GetString (data, byteLen);
+			}
 		}
 	}
 }

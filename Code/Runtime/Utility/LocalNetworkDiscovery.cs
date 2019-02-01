@@ -6,7 +6,7 @@ using Unity.Networking.Transport;
 using System.Threading;
 using System.Threading.Tasks;
 
-public class LoaclNetworkDiscovery : MonoBehaviour {
+public class LocalNetworkDiscovery : MonoBehaviour {
 
 	[SerializeField]
 	int m_broadcastPort = 47777;
@@ -72,23 +72,15 @@ public class LoaclNetworkDiscovery : MonoBehaviour {
 		Debug.Log ("Broadcast StartHost");
 
 		unsafe {
-			int byteCount = System.Text.Encoding.UTF8.GetByteCount (m_broadcastData);
+			int strByteCount = DataStreamWriter.GetByteSizeStr (m_broadcastData);
+			using (var writer = new DataStreamWriter (10 + strByteCount, Allocator.Temp)) {
+				writer.Write (m_broadcastKey);
+				writer.Write (m_broadcastVersion);
+				writer.Write (m_broadcastData);
 
-			fixed (char* pData = m_broadcastData) {
-				fixed (byte* data = new byte[byteCount]) {
-					byteCount = System.Text.Encoding.UTF8.GetBytes (pData, m_broadcastData.Length, data, byteCount);
-
-					using (var writer = new DataStreamWriter (12 + byteCount, Allocator.Temp)) {
-						writer.Write (m_broadcastKey);
-						writer.Write (m_broadcastVersion);
-						writer.Write (byteCount);
-						writer.WriteBytes (data, byteCount);
-
-						var reader = new DataStreamReader (writer, 0, writer.Length);
-						var ctx = default (DataStreamReader.Context);
-						discovetyPacket = reader.ReadBytesAsArray (ref ctx, writer.Length);
-					}
-				}
+				var reader = new DataStreamReader (writer, 0, writer.Length);
+				var ctx = default (DataStreamReader.Context);
+				discovetyPacket = reader.ReadBytesAsArray (ref ctx, writer.Length);
 			}
 		}
 
@@ -96,7 +88,7 @@ public class LoaclNetworkDiscovery : MonoBehaviour {
 			if (isStarted) {
 				await Task.Delay ((int)(1000 * m_broadcastInterval));
 				await client.SendAsync (discovetyPacket, discovetyPacket.Length);
-				Debug.Log ("Broadcast SendAsync");
+				//Debug.Log ("Broadcast SendAsync");
 			} else {
 				break;
 			}
@@ -133,15 +125,13 @@ public class LoaclNetworkDiscovery : MonoBehaviour {
 							var ctx = default (DataStreamReader.Context);
 							var key = reader.ReadInt (ref ctx);
 							var version = reader.ReadInt (ref ctx);
-							var count = reader.ReadInt (ref ctx);
 
 							if (key != m_broadcastKey) return;
 							if (version != m_broadcastVersion) return;
 
-							reader.ReadBytes (ref ctx, data, count);
-							var str = System.Text.Encoding.UTF8.GetString (data, count);
+							var str = reader.ReadString(ref ctx);
 
-							Debug.Log ("OnReciveBroadcast key=" + key + ", version=" + version + ", str=" + str + "time=" + Time.time);
+							//Debug.Log ("OnReciveBroadcast key=" + key + ", version=" + version + ", str=" + str + "time=" + Time.time);
 							OnReciveBroadcast?.Invoke (result.RemoteEndPoint, key, version, str);
 							//Stop ();
 						}
