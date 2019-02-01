@@ -18,6 +18,8 @@ namespace ICKX.Radome {
             ChangeAuthor,
             SyncTransform,
             BehaviourRpc,
+
+			DataTransporter,
         }
     }
 }
