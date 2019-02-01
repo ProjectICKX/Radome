@@ -116,7 +116,7 @@ namespace ICKX.Radome {
                 if (networkLinkerHandle.IsCreated) {
                     NetworkLinker linker = NetworkLinkerPool.GetLinker (networkLinkerHandle);
                     if (linker != null) {
-                         seqNum = linker.Send (writer, qos);
+                         seqNum = linker.Send (writer, qos, noChunk);
                     }
                 } else {
                     Debug.LogError ("Send Failed : is not create networkLinker ID = " + targetPlayerId);
@@ -184,30 +184,20 @@ namespace ICKX.Radome {
             }
 
             for (int j = 0; j < linker.dataStreams.Length; j++) {
-                var stream = linker.dataStreams[j];
-                if (!stream.IsCreated) return;
+				var stream = linker.dataStreams[j];
+				var ctx = default (DataStreamReader.Context);
+				if (!ReadQosHeader (stream, ref ctx, out var qosType, out var seqNum, out var ackNum)) {
+					continue;
+				}
+				//chunkをバラして解析
+				while (true) {
+					if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type)) {
+						break;
+					}
+					//Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
 
-                var ctx = default (DataStreamReader.Context);
-                byte qosType = stream.ReadByte (ref ctx);
-                ushort seqNum = stream.ReadUShort (ref ctx);
-                ushort ackNum = stream.ReadUShort (ref ctx);
-
-                while (true) {
-                    int pos = stream.GetBytesRead (ref ctx);
-                    if (pos >= stream.Length) break;
-                    ushort dataLength = stream.ReadUShort (ref ctx);
-                    if (dataLength == 0) break;
-
-                    var chunk = stream.ReadChunk (ref ctx, dataLength);
-                    var ctx2 = default (DataStreamReader.Context);
-
-                    ushort targetPlayerId = chunk.ReadUShort (ref ctx2);
-                    ushort senderPlayerId = chunk.ReadUShort (ref ctx2);
-                    byte type = chunk.ReadByte (ref ctx2);
-                    //Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
-
-                    //自分宛パケットの解析
-                    switch (type) {
+					//自分宛パケットの解析
+					switch (type) {
                         case (byte)BuiltInPacket.Type.RegisterPlayer:
                             state = State.Online;
                             playerId = chunk.ReadUShort (ref ctx2);
@@ -264,7 +254,7 @@ namespace ICKX.Radome {
                             Stop ();
                             break;
                         default:
-                            ExecOnRecievePacket (senderPlayerId, type, chunk, ctx2);
+                            RecieveData (senderPlayerId, type, chunk, ctx2);
                             break;
                     }
                 }

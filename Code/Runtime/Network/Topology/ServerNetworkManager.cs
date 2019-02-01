@@ -338,6 +338,8 @@ namespace ICKX.Radome {
             return 0;
         }
 
+		private bool isFirstUpdateComplete = false;
+
         /// <summary>
         /// 受信パケットの受け取りなど、最初に行うべきUpdateループ
         /// </summary>
@@ -346,8 +348,8 @@ namespace ICKX.Radome {
                 return;
             }
 
-            //job完了待ち
-            jobHandle.Complete ();
+			//job完了待ち
+			jobHandle.Complete ();
             for (int i = 0; i < networkLinkerHandles.Length; i++) {
                 if (networkLinkerHandles[i].IsCreated) {
                     var linker = NetworkLinkerPool.GetLinker (networkLinkerHandles[i]);
@@ -406,47 +408,22 @@ namespace ICKX.Radome {
 
                 //受け取ったパケットを解析
                 for (int j = 0; j < linker.dataStreams.Length; j++) {
-                    var stream = linker.dataStreams[j];
-                    if (!stream.IsCreated) continue;
-                    var ctx = default (DataStreamReader.Context);
-
-                    QosType qosType = (QosType)stream.ReadByte (ref ctx);
-                    ushort seqNum = stream.ReadUShort (ref ctx);
-                    ushort ackNum = stream.ReadUShort (ref ctx);
-
+					var stream = linker.dataStreams[j];
+					var ctx = default (DataStreamReader.Context);
+					if(!ReadQosHeader (stream, ref ctx, out var qosType, out var seqNum, out var ackNum)) {
+						continue;
+					}
                     //chunkをバラして解析
                     while (!finish) {
-                        int pos = stream.GetBytesRead (ref ctx);
-                        if (pos >= stream.Length) break;
-                        ushort dataLength = stream.ReadUShort (ref ctx);
-                        if (dataLength == 0) break;
-                        var chunk = stream.ReadChunk (ref ctx, dataLength);
+						if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type)) {
+							break;
+						}
+						//Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
 
-                        var ctx2 = default (DataStreamReader.Context);
-                        ushort targetPlayerId = chunk.ReadUShort (ref ctx2);
-                        ushort senderPlayerId = chunk.ReadUShort (ref ctx2);
-                        byte type = chunk.ReadByte (ref ctx2);
-//                        Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
-
-                        if ((targetPlayerId != ServerPlayerId)) {
-                            //パケットをリレーする
-                            using (var writer = new DataStreamWriter (chunk.Length, Allocator.Temp)) {
-                                unsafe {
-                                    byte* chunkPtr = chunk.GetUnsafeReadOnlyPtr ();
-                                    writer.WriteBytes (chunkPtr, (ushort)chunk.Length);
-                                }
-                                if (targetPlayerId == ushort.MaxValue) {
-                                    for (int k = 1; k < networkLinkerHandles.Length; k++) {
-                                        if (senderPlayerId == k) continue;
-                                        var relayLinker = NetworkLinkerPool.GetLinker (networkLinkerHandles[k]);
-                                        relayLinker.Send (writer, qosType);
-                                    }
-                                } else {
-                                    var relayLinker = NetworkLinkerPool.GetLinker (networkLinkerHandles[targetPlayerId]);
-                                    relayLinker.Send (writer, qosType);
-                                }
-                            }
-                        }
+						if ((targetPlayerId != ServerPlayerId)) {
+							//パケットをリレーする
+							RelayPacket (qosType, targetPlayerId, senderPlayerId, chunk);
+						}
 
                         if ((targetPlayerId == playerId || targetPlayerId == ushort.MaxValue)) {
                             //自分宛パケットの解析
@@ -458,8 +435,8 @@ namespace ICKX.Radome {
                                     finish = true;
                                     break;
                                 default:
-                                    //自分宛パケットの解析
-                                    ExecOnRecievePacket (senderPlayerId, type, chunk, ctx2);
+									//自分宛パケットの解析
+									RecieveData (senderPlayerId, type, chunk, ctx2);
                                     break;
                             }
                         }
@@ -475,15 +452,37 @@ namespace ICKX.Radome {
                     }
                 }
             }
-        }
+			isFirstUpdateComplete = true;
+		}
 
-        /// <summary>
-        /// まとめたパケット送信など、最後に行うべきUpdateループ
-        /// </summary>
-        public override void OnLastUpdate () {
+		private void RelayPacket (QosType qosType, ushort targetPlayerId, ushort senderPlayerId, DataStreamReader chunk) {
+			using (var writer = new DataStreamWriter (chunk.Length, Allocator.Temp)) {
+				unsafe {
+					byte* chunkPtr = chunk.GetUnsafeReadOnlyPtr ();
+					writer.WriteBytes (chunkPtr, (ushort)chunk.Length);
+				}
+				if (targetPlayerId == ushort.MaxValue) {
+					for (int k = 1; k < networkLinkerHandles.Length; k++) {
+						if (senderPlayerId == k) continue;
+						var relayLinker = NetworkLinkerPool.GetLinker (networkLinkerHandles[k]);
+						relayLinker.Send (writer, qosType);
+					}
+				} else {
+					var relayLinker = NetworkLinkerPool.GetLinker (networkLinkerHandles[targetPlayerId]);
+					relayLinker.Send (writer, qosType);
+				}
+			}
+		}
+
+		/// <summary>
+		/// まとめたパケット送信など、最後に行うべきUpdateループ
+		/// </summary>
+		public override void OnLastUpdate () {
             if (state == State.Offline) {
                 return;
             }
+
+			if (!isFirstUpdateComplete) return;
 
             if (Input.GetKeyDown (KeyCode.Delete)) {
                 Debug.Log ("Disconnect");
@@ -529,6 +528,7 @@ namespace ICKX.Radome {
                 }
             }
             linkerJobs.Dispose ();
+			isFirstUpdateComplete = false;
         }
-    }
+	}
 }

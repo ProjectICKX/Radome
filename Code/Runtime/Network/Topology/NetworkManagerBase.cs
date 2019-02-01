@@ -23,7 +23,9 @@ namespace ICKX.Radome {
         public delegate void OnRegisterPlayerEvent (ushort id);
         public delegate void OnUnregisterPlayerEvent (ushort id);
         public delegate void OnRecievePacketEvent (ushort senderPlayerId, byte type, DataStreamReader stream, DataStreamReader.Context ctx);
-        public const ushort ServerPlayerId = 0;
+
+		public const ushort ServerPlayerId = 0;
+		public const int AdressHeaderSize = 4;
 
         public State state { get; protected set; } = State.Offline;
 
@@ -124,7 +126,52 @@ namespace ICKX.Radome {
             OnRecievePacket?.Invoke (senderPlayerId, type, stream, ctx);
         }
 
-        public abstract void OnFirstUpdate ();
+		protected bool ReadQosHeader (DataStreamReader stream, ref DataStreamReader.Context ctx, out QosType qosType, out ushort seqNum, out ushort ackNum) {
+			if (!stream.IsCreated) {
+				qosType = QosType.Empty;
+				seqNum = 0;
+				ackNum = 0;
+				return false;
+			}
+			qosType = (QosType)stream.ReadByte (ref ctx);
+			seqNum = stream.ReadUShort (ref ctx);
+			ackNum = stream.ReadUShort (ref ctx);
+			return true;
+		}
+
+		protected bool ReadChunkHeader (DataStreamReader stream, ref DataStreamReader.Context ctx
+				, out DataStreamReader chunk, out DataStreamReader.Context ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type) {
+
+			chunk = default;
+			ctx2 = default;
+			targetPlayerId = 0;
+			senderPlayerId = 0;
+			type = 0;
+
+			int pos = stream.GetBytesRead (ref ctx);
+			if (pos >= stream.Length) return false;
+			ushort dataLength = stream.ReadUShort (ref ctx);
+			if (dataLength == 0) return false;
+
+			chunk = stream.ReadChunk (ref ctx, dataLength);
+			targetPlayerId = chunk.ReadUShort (ref ctx2);
+			senderPlayerId = chunk.ReadUShort (ref ctx2);
+			type = chunk.ReadByte (ref ctx2);
+			return true;
+		}
+
+		protected virtual void RecieveData (ushort senderPlayerId, byte type, DataStreamReader chunk, DataStreamReader.Context ctx) {
+			//switch ((BuiltInPacket.Type)type) {
+			//	case BuiltInPacket.Type.:
+			//		break;
+			//	default:
+			//		ExecOnRecievePacket (senderPlayerId, type, chunk, ctx);
+			//		break;
+			//}
+			ExecOnRecievePacket (senderPlayerId, type, chunk, ctx);
+		}
+
+		public abstract void OnFirstUpdate ();
         public abstract void OnLastUpdate ();
 
         public abstract bool isFullMesh { get; }
