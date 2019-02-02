@@ -141,8 +141,10 @@ namespace ICKX.Radome {
                 //Debug.Log ("SendTransform elapsedTime = " + elapsedTime);
             }
 
-            using (var packet = new DataStreamWriter (61, Allocator.Temp)) {
+			//TODO できればScene単位でパケットをまとめて、type(1byte) sceneHash(4byte)の5byteのデータを削減したい
+			using (var packet = new DataStreamWriter (65, Allocator.Temp)) {
                 packet.Write ((byte)BuiltInPacket.Type.SyncTransform);
+				packet.Write (CacheRecordableIdentity.sceneHash);
                 packet.Write (CacheRecordableIdentity.netId);
                 packet.Write (RecordableIdentityManager.progressTimeSinceStartup);
                 packet.Write (CacheTransform.position);

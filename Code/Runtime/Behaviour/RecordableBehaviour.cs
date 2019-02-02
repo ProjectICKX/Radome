@@ -59,15 +59,15 @@ namespace ICKX.Radome {
         /// <summary>
         /// 指定したPlayerIDのリモートインスタンスにパケットを送信
         /// </summary>
-        protected void SendRpc (ushort targetPlayerId, DataStreamWriter rpcPacket, QosType qosType, bool important = true) {
-            cacheRecordableIdentity.SendRpc (targetPlayerId, componentIndex, rpcPacket, qosType, important);
+        protected void SendRpc (ushort targetPlayerId, byte methodId, DataStreamWriter rpcPacket, QosType qosType, bool important = true) {
+            cacheRecordableIdentity.SendRpc (targetPlayerId, componentIndex, methodId, rpcPacket, qosType, important);
         }
 
         /// <summary>
         /// 全クライアントのリモートインスタンスにパケットを送信
         /// </summary>
-        protected void BrodcastRpc (DataStreamWriter rpcPacket, QosType qosType, bool important = true) {
-            cacheRecordableIdentity.BrodcastRpc (componentIndex, rpcPacket, qosType, important);
+        protected void BrodcastRpc (byte methodId, DataStreamWriter rpcPacket, QosType qosType, bool important = true) {
+            cacheRecordableIdentity.BrodcastRpc (componentIndex, methodId, rpcPacket, qosType, important);
         }
 
         /// <summary>

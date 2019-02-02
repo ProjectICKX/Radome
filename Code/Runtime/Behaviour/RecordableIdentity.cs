@@ -22,15 +22,26 @@ namespace ICKX.Radome {
 
         [Disable]
         [SerializeField]
-        private int m_netId = -1;
+		internal ushort m_netId = 0;
+		[Disable]
+		[SerializeField]
+		internal bool m_isSyncComplete;
+		[Disable]
+		[SerializeField]
+		internal RecordableSceneIdentity m_sceneIdentity;
 
-        public int netId { get { return m_netId; } }
+		public RecordableSceneIdentity sceneIdentity { get { return m_sceneIdentity; } }
 
-        public ushort author { get; private set; } = 0;
+		//動的生成した場合は0
+		public int sceneHash { get { return sceneIdentity ? sceneIdentity.sceneHash : 0; } }
+
+		public ushort netId { get { return m_netId; } }
+
+		public ushort author { get; private set; } = 0;
 
         public ushort gridId { get; private set; }
 
-        public bool isSyncComplete { get; private set; }
+        public bool isSyncComplete { get { return m_isSyncComplete; } }
 
         public bool hasAuthority {
             get {
@@ -45,7 +56,7 @@ namespace ICKX.Radome {
 
         private List<RecordableBehaviour> m_recordableBehaviourList;
 
-        private void Awake () {
+		private void Awake () {
             CacheTransform = transform;
             CacheRecordableTransform = GetComponent<RecordableTransform> ();
 
@@ -68,18 +79,13 @@ namespace ICKX.Radome {
             //あとで作る
         }
 
-        internal void SetNetId (int netId) {
-            this.m_netId = netId;
-        }
-
-
         internal void SetAuthor (ushort author) {
             this.author = author;
             OnChangeAuthor (this, author, hasAuthority);
         }
 
         internal void SyncComplete () {
-            isSyncComplete = true;
+			m_isSyncComplete = true;
         }
 
         internal byte AddRecordableBehaviour (RecordableBehaviour recordableBehaviour) {
@@ -87,46 +93,47 @@ namespace ICKX.Radome {
             return (byte)m_recordableBehaviourList.Count;
         }
 
-        internal void SendRpc (ushort targetPlayerId, byte componentIndex, DataStreamWriter rpcPacket, QosType qosType, bool important) {
+        internal void SendRpc (ushort targetPlayerId, byte componentIndex, byte methodId, DataStreamWriter rpcPacket, QosType qosType, bool important) {
             if (!isSyncComplete) return;
-            using (var writer = new DataStreamWriter (rpcPacket.Length + 6, Allocator.Temp)) {
-                unsafe {
-                    byte* dataPtr = DataStreamUnsafeUtility.GetUnsafeReadOnlyPtr (rpcPacket);
-                    writer.Write ((byte)BuiltInPacket.Type.BehaviourRpc);
-                    writer.Write (netId);
-                    writer.Write (componentIndex);
-                    writer.WriteBytes (dataPtr, rpcPacket.Length);
-                }
-                GamePacketManager.Send (targetPlayerId, writer, qosType);
-                //if (important) {
-                //    GamePacketManager.Send (playerId, writer, qosType);
-                //} else {
-                //    GamePacketManager.Send (playerId, writer, qosType, gridId);
-                //}
-            }
+
+			var writer = new DataStreamWriter (rpcPacket.Length + 9, Allocator.Temp);
+			CreateRpcPacket (ref writer, ref rpcPacket, componentIndex, methodId);
+			GamePacketManager.Send (targetPlayerId, writer, qosType);
+            //if (important) {
+            //    GamePacketManager.Send (playerId, writer, qosType);
+            //} else {
+            //    GamePacketManager.Send (playerId, writer, qosType, gridId);
+            //}
+			writer.Dispose ();
+		}
+
+		internal void BrodcastRpc (byte componentIndex, byte methodId, DataStreamWriter rpcPacket, QosType qosType, bool important) {
+            if (!isSyncComplete) return;
+            var writer = new DataStreamWriter (rpcPacket.Length + 9, Allocator.Temp);
+			CreateRpcPacket (ref writer, ref rpcPacket, componentIndex, methodId);
+			GamePacketManager.Brodcast (writer, qosType);
+			//if (important) {
+			//    GamePacketManager.Brodcast (writer, qosType);
+			//} else {
+			//    GamePacketManager.Brodcast (writer, qosType, gridId);
+			//}
+			writer.Dispose ();
         }
 
-        internal void BrodcastRpc (byte componentIndex, DataStreamWriter rpcPacket, QosType qosType, bool important) {
-            if (!isSyncComplete) return;
-            using (var writer = new DataStreamWriter (rpcPacket.Length + 6, Allocator.Temp)) {
-                unsafe {
-                    byte* dataPtr = DataStreamUnsafeUtility.GetUnsafeReadOnlyPtr (rpcPacket);
-                    writer.Write ((byte)BuiltInPacket.Type.BehaviourRpc);
-                    writer.Write (netId);
-                    writer.Write (componentIndex);
-                    writer.WriteBytes (dataPtr, rpcPacket.Length);
-                }
-                GamePacketManager.Brodcast (writer, qosType);
-                //if (important) {
-                //    GamePacketManager.Brodcast (writer, qosType);
-                //} else {
-                //    GamePacketManager.Brodcast (writer, qosType, gridId);
-                //}
-            }
-        }
+		//TODO できればScene単位でパケットをまとめて、type(1byte) sceneHash(4byte)の5byteのデータを削減したい
+		private void CreateRpcPacket (ref DataStreamWriter writer, ref DataStreamWriter rpcPacket, byte componentIndex, byte methodId) {
+			unsafe {
+				byte* dataPtr = DataStreamUnsafeUtility.GetUnsafeReadOnlyPtr (rpcPacket);
+				writer.Write ((byte)BuiltInPacket.Type.BehaviourRpc);
+				writer.Write (sceneHash);
+				writer.Write (netId);
+				writer.Write (componentIndex);
+				writer.Write (methodId);
+				writer.WriteBytes (dataPtr, rpcPacket.Length);
+			}
+		}
 
-
-        internal void OnRecieveSyncTransformPacket (ushort senderPlayerId, ref DataStreamReader packet, ref DataStreamReader.Context ctx) {
+		internal void OnRecieveSyncTransformPacket (ushort senderPlayerId, ref DataStreamReader packet, ref DataStreamReader.Context ctx) {
             if (!isSyncComplete) return;
 
             if (CacheRecordableTransform) {

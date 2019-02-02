@@ -11,208 +11,254 @@ using UnityEditor.SceneManagement;
 
 namespace ICKX.Radome {
 
-    public class RecordableIdentityManager : ManagerBase<RecordableIdentityManager> {
+	public class RecordableIdentityManager : RecordableGroupIdentity {
 
-        private List<RecordableIdentity> m_spawnedIdentityList = null;
-
-        private List<System.Action<int>> uncheckReserveNetIdCallbacks; 
-
-        public IReadOnlyList<RecordableIdentity> spawnedIdentityList {
-            get { return m_spawnedIdentityList; }
-        }
-
-		public int SpawnedIdentityCount {
-			get { return m_spawnedIdentityList == null ? 0 : m_spawnedIdentityList.Count; }
-		} 
-
-        public static long currentUnixTime { get; private set; }
-
-        public static uint progressTimeSinceStartup {
-            get { return (uint)(currentUnixTime - GamePacketManager.LeaderStartTime); }
-        }
-
-        private void OnEnable () {
-            uncheckReserveNetIdCallbacks = new List<System.Action<int>> (4);
-            GamePacketManager.OnRecievePacket += OnRecievePacket;
-        }
-
-        private void OnDisable () {
-            GamePacketManager.OnRecievePacket -= OnRecievePacket;
-        }
-
-        private void Update () {
-            currentUnixTime = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds ();
-        }
-
-        /// <summary>
-        /// Sceneに存在するIdentityすべてを登録しなおす
-        /// </summary>
-        public static void ResetSpawnedIdentityList () {
-            if (Instance == null) return;
-
-            var identitys = FindObjectsOfType<RecordableIdentity> ();
-            Instance.m_spawnedIdentityList = new List<RecordableIdentity> (identitys.Length);
-            foreach (var identity in identitys) {
-                while (identity.netId >= Instance.m_spawnedIdentityList.Count) Instance.m_spawnedIdentityList.Add (null);
-                Instance.m_spawnedIdentityList[identity.netId] = identity;
-                identity.SyncComplete ();
-            }
-        }
-
-        /// <summary>
-        /// Hostに問い合わせて重複しないNetIDを取得する.
-        /// </summary>
-        public static void ReserveNetId (System.Action<int> onReserveNetId) {
-            if (Instance == null) return;
-			if (Instance.m_spawnedIdentityList == null) return;
-
-            if (GamePacketManager.IsLeader) {
-                onReserveNetId (Instance.m_spawnedIdentityList.Count);
-            } else {
-                Instance.uncheckReserveNetIdCallbacks.Add (onReserveNetId);
-                using (var packet = new DataStreamWriter (1, Allocator.Temp)) {
-                    packet.Write ((byte)BuiltInPacket.Type.ReserveNetId);
-                    GamePacketManager.Send (0, packet, QosType.Reliable);
-                }
-            }
-        }
-
-        /// <summary>
-        /// ReserveNetIdで確保したNetIDでidentityを登録する
-        /// このメソッド単体でSpawnは行わないので、それぞれのclientでIdentityを生成した後で実行すること
-        /// </summary>
-        public static void RegisterIdentity (RecordableIdentity identity, int netId, ushort author) {
-            if (Instance == null) return;
-            if (identity == null) return;
-			if (Instance.m_spawnedIdentityList == null) return;
-
-			while (identity.netId >= Instance.m_spawnedIdentityList.Count) Instance.m_spawnedIdentityList.Add (null);
-            Instance.m_spawnedIdentityList[identity.netId] = identity;
-            identity.SetNetId (netId);
-            identity.SetAuthor (author);
-            identity.SyncComplete ();
-        }
-
-        /// <summary>
-        /// Hostに問い合わせて問題なければAuthorを変更する
-        /// </summary>
-        public static void RequestChangeAuthor (RecordableIdentity identity, ushort author) {
-            if (Instance == null) return;
-            if (identity == null) return;
-			if (Instance.m_spawnedIdentityList == null) return;
-
-			if (GamePacketManager.IsLeader) {
-                identity.SetAuthor (author);
-            } else {
-                using (var packet = new DataStreamWriter (7, Allocator.Temp)) {
-                    packet.Write ((byte)BuiltInPacket.Type.ChangeAuthor);
-                    packet.Write (identity.netId);
-                    packet.Write (author);
-                    GamePacketManager.Send (0, packet, QosType.Reliable);
-                }
-            }
-        }
-
-        private void OnRecievePacket (ushort senderPlayerId, byte type, DataStreamReader rpcPacket, DataStreamReader.Context ctx) {
-			if (m_spawnedIdentityList == null) return;
-
-			switch ((BuiltInPacket.Type)type) {
-                case BuiltInPacket.Type.ReserveNetId:
-                    if (GamePacketManager.IsLeader) {
-                        //HostではNetIDの整合性を確認
-                        var reserveNetId = m_spawnedIdentityList.Count;
-                        m_spawnedIdentityList.Add (null);
-
-                        //Clientに通達する
-                        using (var packet = new DataStreamWriter (6, Allocator.Temp)) {
-                            packet.Write ((byte)BuiltInPacket.Type.ReserveNetId);
-                            packet.Write (reserveNetId);
-                            GamePacketManager.Send (senderPlayerId, packet, QosType.Reliable);
-                        }
-                    } else {
-                        //確認されたauthorの変更を反映
-                        var reserveNetId = rpcPacket.ReadInt(ref ctx);
-                        if(uncheckReserveNetIdCallbacks.Count > 0) {
-                            uncheckReserveNetIdCallbacks[0] (reserveNetId);
-                            uncheckReserveNetIdCallbacks.RemoveAt (0);
-                        }else {
-                            Debug.LogError ("uncheckReserveNetIdCallbacks is 0");
-                        }
-                    }
-                    break;
-                case BuiltInPacket.Type.ChangeAuthor:
-                    var netId = rpcPacket.ReadInt (ref ctx);
-                    var author = rpcPacket.ReadUShort (ref ctx);
-
-                    if (GamePacketManager.IsLeader) {
-                        //Hostではauthorの整合性を確認
-                        if (netId < m_spawnedIdentityList.Count) {
-                            m_spawnedIdentityList[netId].SetAuthor (author);
-                            //Clientに通達する
-                            using (var packet = new DataStreamWriter (7, Allocator.Temp)) {
-                                packet.Write ((byte)BuiltInPacket.Type.ChangeAuthor);
-                                packet.Write (netId);
-                                packet.Write (author);
-                                GamePacketManager.Brodcast (packet, QosType.Reliable);
-                            }
-                        }
-                    } else {
-                        //確認されたauthorの変更を反映
-                        if (netId < m_spawnedIdentityList.Count) {
-                            m_spawnedIdentityList[netId].SetAuthor (author);
-                        }
-                    }
-                    break;
-                case BuiltInPacket.Type.SyncTransform:
-                    var syncTranformNetId = rpcPacket.ReadInt (ref ctx);
-
-                    if (syncTranformNetId < m_spawnedIdentityList.Count) {
-                        var identity = m_spawnedIdentityList[syncTranformNetId];
-                        if (identity != null) {
-                            identity.OnRecieveSyncTransformPacket (senderPlayerId, ref rpcPacket, ref ctx);
-                        }
-                    }
-                    break;
-                case BuiltInPacket.Type.BehaviourRpc:
-                    int rpcNetId = rpcPacket.ReadInt(ref ctx);
-
-                    if (rpcNetId < m_spawnedIdentityList.Count) {
-                        var identity = m_spawnedIdentityList[rpcNetId];
-                        if (identity != null) {
-                            identity.OnRecieveRpcPacket (senderPlayerId, ref rpcPacket, ref ctx);
-                        }
-                    }
-                    break;
-            }
-        }
-
-#if UNITY_EDITOR
-        [CustomEditor (typeof (RecordableIdentityManager))]
-        public class RecordableIdentityManagerEditor : Editor {
-
-            public override void OnInspectorGUI () {
-                base.OnInspectorGUI ();
-
-                if (GUILayout.Button ("Assign netID all", EditorStyles.miniButton)) {
-					AssignNetIDAll ();
+		private static RecordableIdentityManager s_instance = null;
+		public static RecordableIdentityManager Instance {
+			get {
+				if (s_instance == null) {
+					s_instance = FindObjectOfType<RecordableIdentityManager> ();
+					if (s_instance == null) {
+						s_instance = new GameObject (nameof (RecordableIdentityManager)).AddComponent<RecordableIdentityManager> ();
+					}
+					if (!s_instance.isInitialized) {
+						s_instance.Initialize ();
+					}
 				}
-            }
-
-			[MenuItem("ICKX/Network/AssignNetIDAll")]
-			public static void AssignNetIDAll () {
-				int id = 0;
-				foreach (var identity in Resources.FindObjectsOfTypeAll<RecordableIdentity> ()) {
-					//scenenに展開しているidentityのみ対応
-					if (string.IsNullOrEmpty (identity.gameObject.scene.name)) continue;
-
-					identity.SetNetId (id);
-					id++;
-				}
-
-				EditorSceneManager.MarkAllScenesDirty ();
-				Debug.Log ("Complete assign netID all.");
+				return s_instance;
 			}
 		}
-#endif
-    }
+
+		private static List<System.Action<ushort>> uncheckReserveNetIdCallbacks;
+
+		private static Dictionary<int, RecordableSceneIdentity> m_recordableSceneIdentitTable = new Dictionary<int, RecordableSceneIdentity>();
+
+		public static IReadOnlyDictionary<int, RecordableSceneIdentity> recordableSceneIdentityTable {
+			get { return m_recordableSceneIdentitTable; }
+		}
+
+		public static long currentUnixTime { get; private set; }
+
+		public static uint progressTimeSinceStartup {
+			get { return (uint)(currentUnixTime - GamePacketManager.LeaderStartTime); }
+		}
+
+		protected void Awake () {
+			if (s_instance == null) {
+				s_instance = this as RecordableIdentityManager;
+			} else {
+				if (s_instance != this) {
+					Destroy (this);
+				}
+			}
+
+			if (!s_instance.isInitialized) {
+				Initialize ();
+			}
+		}
+
+		protected bool isInitialized = false;
+
+		public void Initialize () {
+			if (isInitialized) return;
+			isInitialized = true;
+			DontDestroyOnLoad (s_instance.gameObject);
+			uncheckReserveNetIdCallbacks = new List<System.Action<ushort>> (4);
+
+			if (m_identityList == null) {
+				m_identityList = new List<RecordableIdentity> ();
+			}else {
+				m_identityList.Clear ();
+			}
+			m_groupHash = 0;
+
+			GamePacketManager.OnRecievePacket += OnRecievePacket;
+		}
+
+		private void OnDestroy () {
+			GamePacketManager.OnRecievePacket -= OnRecievePacket;
+		}
+
+		private void Update () {
+			currentUnixTime = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds ();
+		}
+
+		public static void AddRecordableSceneIdentity (int sceneHash, RecordableSceneIdentity sceneIdentity) {
+			m_recordableSceneIdentitTable[sceneHash] = sceneIdentity;
+		}
+
+		public static void RemoveRecordableSceneIdentity (int sceneHash) {
+			m_recordableSceneIdentitTable.Remove (sceneHash);
+		}
+
+		/// <summary>
+		/// RecordableIdentityを探す sceneHash=0なら動的生成したもの
+		/// </summary>
+		public static RecordableIdentity FindIdentity (int sceneHash, ushort netId) {
+			if (sceneHash == 0) {
+				return Instance.FindIdentityInGroup (netId);
+			} else {
+				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out RecordableSceneIdentity sceneIdentity)) {
+					return sceneIdentity.FindIdentityInGroup (netId);
+				} else {
+					Debug.LogError ($"sceneHash = {sceneHash} is not found");
+					return null;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Hostに問い合わせて重複しないNetIDを取得する.
+		/// </summary>
+		public static void ReserveNetId (System.Action<ushort> onReserveNetId) {
+			if (GamePacketManager.IsLeader) {
+				onReserveNetId ((ushort)Instance.m_identityList.Count);
+			} else {
+				uncheckReserveNetIdCallbacks.Add (onReserveNetId);
+				using (var packet = new DataStreamWriter (1, Allocator.Temp)) {
+					packet.Write ((byte)BuiltInPacket.Type.ReserveNetId);
+					GamePacketManager.Send (0, packet, QosType.Reliable);
+				}
+			}
+		}
+
+		/// <summary>
+		/// ReserveNetIdで確保したNetIDでidentityを登録する
+		/// このメソッド単体でSpawn処理は行わないので、それぞれのclientでIdentityを生成した後で実行すること
+		/// </summary>
+		public static void RegisterIdentity (RecordableIdentity identity, ushort netId, ushort author) {
+			if (identity == null) return;
+
+			while (identity.netId >= Instance.m_identityList.Count) Instance.m_identityList.Add (null);
+			Instance.m_identityList[identity.netId] = identity;
+			identity.m_netId = netId;
+			identity.SetAuthor (author);
+			identity.SyncComplete ();
+		}
+
+		/// <summary>
+		/// Hostに問い合わせて問題なければAuthorを変更する
+		/// </summary>
+		public static void RequestChangeAuthor (int sceneHash, ushort netId, ushort author) {
+			if (sceneHash == 0) {
+				Instance.RequestChangeAuthorInGroup (netId, author);
+			} else {
+				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out RecordableSceneIdentity sceneIdentity)) {
+					sceneIdentity.RequestChangeAuthorInGroup (netId, author);
+				} else {
+					Debug.LogError ($"sceneHash = {sceneHash} is not found");
+					return;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Hostに問い合わせて問題なければAuthorを変更する
+		/// </summary>
+		public static void RequestChangeAuthor (RecordableIdentity identity, ushort author) {
+			if (identity == null) return;
+
+			if(identity.sceneHash == 0) {
+				Instance.RequestChangeAuthorInGroup (identity, author);
+			}else {
+				if (m_recordableSceneIdentitTable.TryGetValue (identity.sceneHash, out RecordableSceneIdentity sceneIdentity)) {
+					sceneIdentity.RequestChangeAuthorInGroup (identity, author);
+				} else {
+					Debug.LogError ($"sceneHash = {identity.sceneHash} is not found");
+					return;
+				}
+			}
+		}
+
+		private static void OnRecievePacket (ushort senderPlayerId, byte type, DataStreamReader recievePacket, DataStreamReader.Context ctx) {
+			Debug.Log ("OnRecievePacket");
+			switch ((BuiltInPacket.Type)type) {
+				case BuiltInPacket.Type.ReserveNetId:
+					RecieveReserveNetId (senderPlayerId, ref recievePacket, ref ctx);
+					break;
+				case BuiltInPacket.Type.ChangeAuthor:
+					int sceneHash = recievePacket.ReadInt (ref ctx);
+					ushort netId = recievePacket.ReadUShort (ref ctx);
+					ushort author = recievePacket.ReadUShort (ref ctx);
+					RecieveChangeAuthor (sceneHash, netId, author);
+					break;
+				case BuiltInPacket.Type.SyncTransform:
+					RecieveSyncTransform (senderPlayerId, ref recievePacket, ref ctx);
+					break;
+				case BuiltInPacket.Type.BehaviourRpc:
+					RecieveBehaviourRpc (senderPlayerId, ref recievePacket, ref ctx);
+					break;
+			}
+		}
+
+		private static void RecieveReserveNetId (ushort senderPlayerId, ref DataStreamReader recievePacket, ref DataStreamReader.Context ctx) {
+
+			if (GamePacketManager.IsLeader) {
+				//HostではNetIDの整合性を確認
+				ushort reserveNetId = (ushort)Instance.m_identityList.Count;
+				Instance.m_identityList.Add (null);
+
+				//Clientに通達する
+				using (var packet = new DataStreamWriter (3, Allocator.Temp)) {
+					packet.Write ((byte)BuiltInPacket.Type.ReserveNetId);
+					packet.Write (reserveNetId);
+					GamePacketManager.Send (senderPlayerId, packet, QosType.Reliable);
+				}
+			} else {
+				//確認されたauthorの変更を反映
+				ushort reserveNetId = recievePacket.ReadUShort (ref ctx);
+				if (uncheckReserveNetIdCallbacks.Count > 0) {
+					uncheckReserveNetIdCallbacks[0] (reserveNetId);
+					uncheckReserveNetIdCallbacks.RemoveAt (0);
+				} else {
+					Debug.LogError ("uncheckReserveNetIdCallbacks is 0");
+				}
+			}
+		}
+
+		private static void RecieveChangeAuthor (int sceneHash, ushort netId, ushort author) {
+			if (sceneHash == 0) {
+				Instance.RecieveChangeAuthorInGroup (netId, author);
+			} else {
+				RecordableSceneIdentity sceneIdentity;
+				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out sceneIdentity)) {
+					sceneIdentity.RecieveChangeAuthorInGroup (netId, author);
+				} else {
+					Debug.LogError ($"{sceneHash} is not found in recordableSceneIdentitTable");
+				}
+			}
+		}
+
+		private static void RecieveSyncTransform (ushort senderPlayerId, ref DataStreamReader recievePacket, ref DataStreamReader.Context ctx) {
+			int sceneHash = recievePacket.ReadInt (ref ctx);
+			ushort netId = recievePacket.ReadUShort (ref ctx);
+
+			if (sceneHash == 0) {
+				Instance.RecieveSyncTransformInGroup (senderPlayerId, netId, ref recievePacket, ref ctx);
+			} else {
+				RecordableSceneIdentity sceneIdentity;
+				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out sceneIdentity)) {
+					sceneIdentity.RecieveSyncTransformInGroup (senderPlayerId, netId, ref recievePacket, ref ctx);
+				} else {
+					Debug.LogError ($"{sceneHash} is not found in recordableSceneIdentitTable");
+				}
+			}
+		}
+
+		private static void RecieveBehaviourRpc (ushort senderPlayerId, ref DataStreamReader recievePacket, ref DataStreamReader.Context ctx) {
+			int sceneHash = recievePacket.ReadInt (ref ctx);
+			ushort netId = recievePacket.ReadUShort (ref ctx);
+
+			if (sceneHash == 0) {
+				Instance.RecieveBehaviourRpcInGroup (senderPlayerId, netId, ref recievePacket, ref ctx);
+			} else {
+				RecordableSceneIdentity sceneIdentity;
+				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out sceneIdentity)) {
+					sceneIdentity.RecieveBehaviourRpcInGroup (senderPlayerId, netId, ref recievePacket, ref ctx);
+				} else {
+					Debug.LogError ($"{sceneHash} is not found in recordableSceneIdentitTable");
+				}
+			}
+		}
+	}
 }
