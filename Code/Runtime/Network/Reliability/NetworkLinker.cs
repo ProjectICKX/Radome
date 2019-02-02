@@ -223,8 +223,8 @@ namespace ICKX.Radome {
                 DataStreamReader stream;
                 NetworkEvent.Type cmd;
 
-                //前フレームで解決できなかったbufferedからuncheckedに登録.
-                if (!savedUncheckedReliableDataStream.IsCreated) {
+				//前フレームで解決できなかったbufferedからuncheckedに登録.
+				if (!savedUncheckedReliableDataStream.IsCreated) {
                     stream = new DataStreamReader (savedUncheckedReliableDataStream, 0, savedUncheckedReliableDataStream.Length);
                     int offset = 0;
                     while (offset < savedUncheckedReliableDataStream.Length) {
@@ -240,8 +240,6 @@ namespace ICKX.Radome {
                     }
                 }
 
-                //TODO
-                //connection.PopEventで得たパケットはCRCなどで破損がないかチェックは済んでいる想定で実装している
                 while ((cmd = connection.PopEvent (driver, out stream)) != NetworkEvent.Type.Empty) {
                     if (cmd == NetworkEvent.Type.Connect) {
                         flags[(int)FlagDef.IsConnected] = 1;
@@ -324,15 +322,23 @@ namespace ICKX.Radome {
 
                 //uncheckedreliableStreamsに残ったパケットはnetworkdriverから実態が消される前にコピーしておく
                 unsafe {
-                    tempUncheckedReliableDataStream.Clear ();
+					//uncheckedreliableStreamsはsavedUncheckedReliableDataStreamに実態を持つ場合があるので
+					//直接savedUncheckedReliableDataStream書き込むと実態が消えてしまうのでtempまず書く
+					tempUncheckedReliableDataStream.Clear ();
                     for (int i = 0; i < uncheckedreliableStreams.Length; i++) {
                         int dataLength = uncheckedreliableStreams[i].Length;
+						if(tempUncheckedReliableDataStream.Capacity - tempUncheckedReliableDataStream.Length < dataLength + 2) {
+							tempUncheckedReliableDataStream.Capacity *= 2;
+						}
                         byte* dataPtr = DataStreamUnsafeUtility.GetUnsafeReadOnlyPtr (uncheckedreliableStreams[i]);
                         tempUncheckedReliableDataStream.Write (dataLength);
                         tempUncheckedReliableDataStream.WriteBytes (dataPtr, dataLength);
                     }
                     savedUncheckedReliableDataStream.Clear ();
-                    savedUncheckedReliableDataStream.WriteBytes (
+					if (savedUncheckedReliableDataStream.Capacity < tempUncheckedReliableDataStream.Capacity) {
+						savedUncheckedReliableDataStream.Capacity *= tempUncheckedReliableDataStream.Capacity;
+					}
+					savedUncheckedReliableDataStream.WriteBytes (
                         tempUncheckedReliableDataStream.GetUnsafeReadOnlyPtr (), tempUncheckedReliableDataStream.Length);
                 }
 
@@ -439,10 +445,10 @@ namespace ICKX.Radome {
             latencyLog = new NativeArray<ushort> (16, Allocator.Persistent);
 
             uncheckedSelfReliablePackets = new List<UncheckedReliablePacket> (16);
+
             uncheckedRecieveReliableDataStream = new DataStreamWriter (ushort.MaxValue, Allocator.Persistent);
             tempRecieveReliableDataStream = new DataStreamWriter (ushort.MaxValue, Allocator.Persistent);
-
-            dataStreams = new NativeList<DataStreamReader> (32, Allocator.Persistent);
+			dataStreams = new NativeList<DataStreamReader> (32, Allocator.Persistent);
             uncheckedreliableStreams = new NativeList<DataStreamReader> (32, Allocator.Persistent);
 
 			packetChunksQosTable = new DataStreamWriter[(int)QosType.ChunkEnd - 1];
@@ -539,6 +545,11 @@ namespace ICKX.Radome {
 					}
 				} else {
 					writer = packetChunksQosTable[(byte)qos - 1];
+
+					if(writer.Capacity - writer.Length < targetPacketSize) {
+						writer.Capacity *= 2;
+					}
+
 					ushort chunkCount = chunkCountQosTable[(int)qos - 1];
 					if (packetLengths[chunkCount] + (ushort)(dataLength + 2) > targetPacketSize) {
                         chunkCount += 1;
