@@ -186,9 +186,12 @@ namespace ICKX.Radome {
 			m_identityList.Insert (0, null);
 
 			for (ushort i = 1; i < m_identityList.Count; i++) {
-				m_identityList[i].m_netId = i;
-				m_identityList[i].m_sceneIdentity = this;
-				m_identityList[i].SyncComplete ();
+				var sobj = new SerializedObject (m_identityList[i]);
+				sobj.Update ();
+				sobj.FindProperty ("m_netId").intValue = i;
+				sobj.FindProperty ("m_sceneIdentity").objectReferenceValue = this;
+				sobj.FindProperty ("m_isSyncComplete").boolValue = true;
+				sobj.ApplyModifiedPropertiesWithoutUndo ();
 			}
 			EditorSceneManager.MarkSceneDirty (gameObject.scene);
 		}
