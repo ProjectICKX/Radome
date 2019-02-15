@@ -94,12 +94,12 @@ namespace ICKX.Radome {
 		/// <summary>
 		/// RecordableIdentityを探す sceneHash=0なら動的生成したもの
 		/// </summary>
-		public static RecordableIdentity FindIdentity (int sceneHash, ushort netId) {
+		public static RecordableIdentity GetIdentity (int sceneHash, ushort netId) {
 			if (sceneHash == 0) {
-				return Instance.FindIdentityInGroup (netId);
+				return Instance.GetIdentityInGroup (netId);
 			} else {
 				if (m_recordableSceneIdentitTable.TryGetValue (sceneHash, out RecordableSceneIdentity sceneIdentity)) {
-					return sceneIdentity.FindIdentityInGroup (netId);
+					return sceneIdentity.GetIdentityInGroup (netId);
 				} else {
 					Debug.LogError ($"sceneHash = {sceneHash} is not found");
 					return null;
@@ -171,7 +171,7 @@ namespace ICKX.Radome {
 		}
 
 		private static void OnRecievePacket (ushort senderPlayerId, byte type, DataStreamReader recievePacket, DataStreamReader.Context ctx) {
-			Debug.Log ("OnRecievePacket");
+			//Debug.Log ("OnRecievePacket");
 			switch ((BuiltInPacket.Type)type) {
 				case BuiltInPacket.Type.ReserveNetId:
 					RecieveReserveNetId (senderPlayerId, ref recievePacket, ref ctx);

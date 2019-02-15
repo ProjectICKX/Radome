@@ -245,10 +245,15 @@ namespace ICKX.Radome {
             return seqNum;
         }
 
-        /// <summary>
-        /// 全Playerにパケットを送信
-        /// </summary>
-        public override void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
+		public override ushort Send (NativeList<ushort> playerIdList, DataStreamWriter data, QosType qos, bool noChunk = false) {
+			//Server-Clientモデルなら任意のプレイヤーへ送る判定をサーバー側で行いたい.
+			throw new System.NotImplementedException ();
+		}
+
+		/// <summary>
+		/// 全Playerにパケットを送信
+		/// </summary>
+		public override void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
             if (state == State.Offline) {
                 Debug.LogError ("Send Failed : State." + state);
                 return;
@@ -415,15 +420,28 @@ namespace ICKX.Radome {
 					}
                     //chunkをバラして解析
                     while (!finish) {
-						if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type)) {
+						if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId)) {
 							break;
 						}
-						//Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
 
-						if ((targetPlayerId != ServerPlayerId)) {
+						if(targetPlayerId == ushort.MaxValue - 1) {
+							//Multi Targetの場合
+							ushort len = chunk.ReadUShort (ref ctx2);
+							for (int k=0;k<len;k++) {
+								var multiTatgetId = chunk.ReadUShort (ref ctx2);
+								if(multiTatgetId == 0) {
+									targetPlayerId = 0;
+								}else {
+									RelayPacket (qosType, multiTatgetId, senderPlayerId, chunk);
+								}
+							}
+						} else if ((targetPlayerId != ServerPlayerId)) {
 							//パケットをリレーする
 							RelayPacket (qosType, targetPlayerId, senderPlayerId, chunk);
 						}
+
+						//Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
+						byte type = chunk.ReadByte (ref ctx2);
 
                         if ((targetPlayerId == playerId || targetPlayerId == ushort.MaxValue)) {
                             //自分宛パケットの解析

@@ -119,16 +119,51 @@ namespace ICKX.Radome {
                          seqNum = linker.Send (writer, qos, noChunk);
                     }
                 } else {
-                    Debug.LogError ("Send Failed : is not create networkLinker ID = " + targetPlayerId);
+                    Debug.LogError ("Send Failed : is not create networkLinker");
                 }
             }
             return seqNum;
         }
 
-        /// <summary>
-        /// 全Playerにパケットを送信
-        /// </summary>
-        public override void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
+		public override ushort Send (NativeList<ushort> playerIdList, DataStreamWriter data, QosType qos, bool noChunk = false) {
+			if (state == State.Offline) {
+				Debug.LogError ("Send Failed : State.Offline");
+				return 0;
+			}
+			ushort seqNum = 0;
+			using (var writer = CreateSendPacket (data, qos, playerIdList, playerId)) {
+				if (networkLinkerHandle.IsCreated) {
+					NetworkLinker linker = NetworkLinkerPool.GetLinker (networkLinkerHandle);
+					if (linker != null) {
+						seqNum = linker.Send (writer, qos, noChunk);
+					}
+				} else {
+					Debug.LogError ("Send Failed : is not create networkLinker");
+				}
+			}
+			return seqNum;
+		}
+
+		protected DataStreamWriter CreateSendPacket (DataStreamWriter data, QosType qos, NativeList<ushort> targetIdList, ushort senderId) {
+			unsafe {
+				byte* dataPtr = DataStreamUnsafeUtility.GetUnsafeReadOnlyPtr (data);
+				ushort dataLength = (ushort)data.Length;
+				var writer = new DataStreamWriter (data.Length + 6 + targetIdList.Length * 2, Allocator.Temp);
+				writer.Write (ushort.MaxValue - 1);
+				writer.Write (senderId);
+				writer.Write ((ushort)targetIdList.Length);
+				for (int i = 0; i < targetIdList.Length; i++) {
+					writer.Write (targetIdList[i]);
+				}
+				writer.WriteBytes (dataPtr, data.Length);
+				return writer;
+			}
+		}
+
+		/// <summary>
+		/// 全Playerにパケットを送信
+		/// </summary>
+		public override void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
             if (state == State.Offline) {
                 Debug.LogError ("Send Failed : State.Offline");
                 return;
@@ -191,10 +226,11 @@ namespace ICKX.Radome {
 				}
 				//chunkをバラして解析
 				while (true) {
-					if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type)) {
+					if (!ReadChunkHeader (stream, ref ctx, out var chunk, out var ctx2, out ushort targetPlayerId, out ushort senderPlayerId)) {
 						break;
 					}
 					//Debug.Log ("Linker streamLen=" + stream.Length + ", Pos=" + pos + ", chunkLen=" + chunk.Length + ",type=" + type + ",target=" + targetPlayerId + ",sender=" + senderPlayerId);
+					byte type = chunk.ReadByte (ref ctx2);
 
 					//自分宛パケットの解析
 					switch (type) {

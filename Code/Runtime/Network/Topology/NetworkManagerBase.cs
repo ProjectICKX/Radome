@@ -114,7 +114,7 @@ namespace ICKX.Radome {
             }
         }
 
-        protected void ExecOnRegisterPlayer (ushort id) {
+		protected void ExecOnRegisterPlayer (ushort id) {
             OnRegisterPlayer?.Invoke (id);
         }
 
@@ -140,13 +140,12 @@ namespace ICKX.Radome {
 		}
 
 		protected bool ReadChunkHeader (DataStreamReader stream, ref DataStreamReader.Context ctx
-				, out DataStreamReader chunk, out DataStreamReader.Context ctx2, out ushort targetPlayerId, out ushort senderPlayerId, out byte type) {
+				, out DataStreamReader chunk, out DataStreamReader.Context ctx2, out ushort targetPlayerId, out ushort senderPlayerId) {
 
 			chunk = default;
 			ctx2 = default;
 			targetPlayerId = 0;
 			senderPlayerId = 0;
-			type = 0;
 
 			int pos = stream.GetBytesRead (ref ctx);
 			if (pos >= stream.Length) return false;
@@ -156,7 +155,6 @@ namespace ICKX.Radome {
 			chunk = stream.ReadChunk (ref ctx, dataLength);
 			targetPlayerId = chunk.ReadUShort (ref ctx2);
 			senderPlayerId = chunk.ReadUShort (ref ctx2);
-			type = chunk.ReadByte (ref ctx2);
 			return true;
 		}
 
@@ -175,8 +173,9 @@ namespace ICKX.Radome {
         public abstract void OnLastUpdate ();
 
         public abstract bool isFullMesh { get; }
-        public abstract ushort Send (ushort targetPlayerId, DataStreamWriter data, QosType qos, bool noChunk = false);
-        public abstract void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false);
+		public abstract ushort Send (ushort targetPlayerId, DataStreamWriter data, QosType qos, bool noChunk = false);
+		public abstract ushort Send (NativeList<ushort> playerIdList, DataStreamWriter data, QosType qos, bool noChunk = false);
+		public abstract void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false);
         public abstract void SendReliable (ushort targetPlayerId, DataStreamWriter data, QosType qos, System.Action<ushort> onComplete, bool noChunk = false);
         public abstract void BrodcastReliable (DataStreamWriter data, QosType qos, System.Action<ushort> onComplete, bool noChunk = false);
         public abstract void Stop ();

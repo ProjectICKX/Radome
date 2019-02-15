@@ -23,7 +23,7 @@ namespace ICKX.Radome {
 
 		public IReadOnlyList<RecordableIdentity> identityList { get { return m_identityList; } }
 
-		internal RecordableIdentity FindIdentityInGroup (ushort netId) {
+		internal RecordableIdentity GetIdentityInGroup (ushort netId) {
 			if (netId >= m_identityList.Count) return null;
 			return m_identityList[netId];
 		}
@@ -35,7 +35,7 @@ namespace ICKX.Radome {
 			}
 
 			if (GamePacketManager.IsLeader) {
-				var identity = FindIdentityInGroup (netId);
+				var identity = GetIdentityInGroup (netId);
 				if(identity) {
 					identity.SetAuthor (author);
 				} else {
@@ -155,8 +155,8 @@ namespace ICKX.Radome {
 		/// <summary>
 		/// 
 		/// </summary>
-		public RecordableIdentity FindIdentityInScene (ushort netId) {
-			return FindIdentityInGroup (netId);
+		public RecordableIdentity GetIdentityInScene (ushort netId) {
+			return GetIdentityInGroup (netId);
 		}
 
 		/// <summary>

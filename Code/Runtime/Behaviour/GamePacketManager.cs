@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Networking.Transport;
 using UnityEngine;
 using static ICKX.Radome.NetworkManagerBase;
@@ -59,7 +60,7 @@ namespace ICKX.Radome {
                 networkManager.OnRecievePacket -= OnRecievePacketMethod;
             }
             NetworkManager = networkManager;
-
+			
             networkManager.OnRegisterPlayer += OnRegisterPlayerMethod;
             networkManager.OnUnregisterPlayer += OnUnregisterPlayerMethod;
             networkManager.OnRecievePacket += OnRecievePacketMethod;
@@ -77,12 +78,18 @@ namespace ICKX.Radome {
             OnRecievePacket?.Invoke (senderPlayerId, type, stream, ctx);
         }
 
-        public static void Send (ushort playerId, DataStreamWriter data, QosType qos, bool noChunk = false) {
-            if (NetworkManager == null || NetworkManager.state == State.Offline) return;
-            NetworkManager.Send (playerId, data, qos, noChunk);
-        }
+		public static void Send (ushort playerId, DataStreamWriter data, QosType qos, bool noChunk = false) {
+			if (NetworkManager == null || NetworkManager.state == State.Offline) return;
+			NetworkManager.Send (playerId, data, qos, noChunk);
+		}
 
-        public static void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
+		public static void Send (NativeList<ushort> playerIdList, DataStreamWriter data, QosType qos, bool noChunk = false) {
+			//if (NetworkManager == null || NetworkManager.state == State.Offline) return;
+			//NetworkManager.Send (playerIdList, data, qos, noChunk);
+			throw new System.NotImplementedException ();
+		}
+
+		public static void Brodcast (DataStreamWriter data, QosType qos, bool noChunk = false) {
             if (NetworkManager == null || NetworkManager.state == State.Offline) return;
             NetworkManager.Brodcast (data, qos, noChunk);
         }
